@@ -1,0 +1,6 @@
+vi:
+  opt: sgd
+  learning_rate: 1e-2
+  kl_samples: 50
+  iters: 100
+  save_freq: 1000

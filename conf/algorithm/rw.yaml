@@ -1,0 +1,4 @@
+rw:
+  n_warmup: 20000
+  n_samples: 20000
+  sd_shrink_factor: 0.1

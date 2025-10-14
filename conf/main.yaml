@@ -1,0 +1,26 @@
+# conf folder structure adapted from
+# https://hydra.cc/docs/1.3/patterns/configuring_experiments/
+
+defaults:
+  - algorithm: hmc
+  - _self_
+
+model: kyphosis
+
+prior_sd: 100
+
+seed: 100
+
+verbose: False
+
+date: ${now:%Y-%m-%d}
+lastrun: ${now:%Y-%m-%dT%H:%M:%S%z}
+git: ${githash:}
+
+hydra:
+  run:
+    dir: "./outputs/${date}/\
+      model=${model}
+      ${print_algo:${algorithm}}
+      prior=${prior_sd}
+      seed=${seed}"

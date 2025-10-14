@@ -1,0 +1,9 @@
+# Expectation Propagation
+ep:
+  n_terms: null
+  init_cov_factor: 1.0
+  damping_factor: 0.5
+  tol: 1e-3
+  max_iter: 100
+  laplace_iter: 30
+  snis_samples: 5000
