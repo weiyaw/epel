@@ -67,8 +67,8 @@ def nuts(
         info_ls.append(info)
 
     # Combine results from lists of 1D-arrays into stacked arrays
-    stacked_state = jax.tree_map(lambda *x: np.stack(x), *state_ls)
-    stacked_info = jax.tree_map(lambda *x: np.stack(x), *info_ls)
+    stacked_state = jax.tree.map(lambda *x: np.stack(x), *state_ls)
+    stacked_info = jax.tree.map(lambda *x: np.stack(x), *info_ls)
 
     return stacked_state, stacked_info, time_ls
 
@@ -131,9 +131,10 @@ def hmc(
         state_ls.append(state)
         info_ls.append(info)
 
+    assert len(state_ls) == len(info_ls) + 1 == len(time_ls)
     # Combine results from lists of 1D-arrays into stacked arrays
-    stacked_state = jax.tree_map(lambda *x: np.stack(x), *state_ls)
-    stacked_info = jax.tree_map(lambda *x: np.stack(x), *info_ls)
+    stacked_state = jax.tree.map(lambda *x: np.stack(x), *state_ls)
+    stacked_info = jax.tree.map(lambda *x: np.stack(x), *info_ls)
 
     return stacked_state, stacked_info, time_ls
 
@@ -145,6 +146,7 @@ def random_walk(
     sd_shrink_factor: float,
     n_samples: int = 5000,
     n_warmup: int = 1000,
+    thinning: int = 1,
 ) -> tuple[PyTree, PyTree, list[float]]:
     """Run random walk Rosenbluth-Metropolis-Hastings sampler.
 
@@ -159,11 +161,13 @@ def random_walk(
         by this factor to adjust its magnitude
     :param n_samples: the number of samples to draw
     :param n_warmup: the number of warmup steps
+    :param thinning: int, keep every thinning-th sample (default 1, no thinning)
 
     :return: A tuple of output.  The first element is an array of state/samples
              of random walk and its corresnpoding log density.  The second
              element is the diagnostic info (e.g. acceptance probability).  The
-             third element is the wall-clock time of each iteration.
+             third element is the wall-clock time to generate each saved sample
+             (aggregated over `thinning` step calls).
     """
 
     initial_proposal_cov = jnp.eye(initial_theta.size) * 0.1**2
@@ -178,14 +182,13 @@ def random_walk(
     state_ls = [state]
     info_ls = []
     for _ in tqdm(range(n_warmup)):
-        start = timer()
         key, subkey = jax.random.split(key)
         state, info = jit_warmup_step(subkey, state)
         state_ls.append(state)
         info_ls.append(info)
 
-    stacked_state = jax.tree_map(lambda *x: np.stack(x), *state_ls)
-    stacked_info = jax.tree_map(lambda *x: np.stack(x), *info_ls)
+    stacked_state = jax.tree.map(lambda *x: np.stack(x), *state_ls)
+    stacked_info = jax.tree.map(lambda *x: np.stack(x), *info_ls)
     logging.info(f"Acceptance prob (warmup): {stacked_info.is_accepted.mean()}")
 
     # Compute the covariance from the warmup samples
@@ -200,19 +203,22 @@ def random_walk(
     state_ls = [state]
     info_ls = []
     time_ls = [0.0]
+    start = timer()
     # Iterate (actual sampling)
-    for _ in tqdm(range(n_samples)):
-        start = timer()
+    for i in tqdm(range(n_samples)):
         key, subkey = jax.random.split(key)
         state, info = jit_actual_step(subkey, state)
         jax.block_until_ready(state)
-        time_ls.append(timer() - start)
-        state_ls.append(state)
-        info_ls.append(info)
+        if (i + 1) % thinning == 0:
+            state_ls.append(state)
+            info_ls.append(info)
+            time_ls.append(timer() - start)
+            start = timer()
 
+    assert len(state_ls) == len(info_ls) + 1 == len(time_ls)
     # Combine results from lists of 1D-arrays into stacked arrays
-    stacked_state = jax.tree_map(lambda *x: np.stack(x), *state_ls)
-    stacked_info = jax.tree_map(lambda *x: np.stack(x), *info_ls)
-    logging.info(f"Acceptance prob (actual): {stacked_info.is_accepted.mean()}")
+    stacked_state = jax.tree.map(lambda *x: np.stack(x), *state_ls)
+    stacked_info = jax.tree.map(lambda *x: np.stack(x), *info_ls)
+    logging.info(f"Acceptance prob (actual): {stacked_info.is_accepted.mean()}, Thinning: {thinning}")
 
     return stacked_state, stacked_info, time_ls

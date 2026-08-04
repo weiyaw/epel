@@ -1,7 +1,6 @@
 vi:
-  opt: sgd
-  learning_rate: 1e-2           # learning rate of the optimizer
-  kl_samples: 50                # how many samples to take in the Monte Carlo
-                                # gradient estimator
-  iters: 100                    # how many iterations of optimization
-  save_freq: 1000 # how often to save the fitted object along the optimization path
+  opt: adam
+  learning_rate: 1e-3
+  kl_samples: 1
+  iters: 800000
+  save_freq: 2000

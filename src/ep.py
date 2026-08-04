@@ -385,6 +385,51 @@ def snis(
     return FullGaussian(eta=tilde_eta, Lambda=tilde_Lambda), diagnostics
 
 
+class SkewSymmetricApproximation(eqx.Module):
+    """
+    Skew-symmetric perturbation of a symmetric approximation, following
+    Pozza, Durante & Szabo (2026, JRSS-B).
+
+    Given a symmetric approximation q̄_{θ*} and the unnormalized log-posterior,
+    the improved approximation is:
+
+        q_{θ*}(θ) = 2 q̄_{θ*}(θ) · w_{θ*}(θ)
+
+    where the skewing factor is:
+
+        w_{θ*}(θ) = sigmoid(log_post(θ) - log_post(2θ* − θ))
+
+    Sampling is rejection-free via Algorithm 1 of the paper.
+    """
+
+    symmetric_dist: FullGaussian
+    log_posterior: Callable
+    theta_star: Array
+
+    def skewing_factor(self, theta: Array) -> Array:
+        log_a = self.log_posterior(theta)
+        log_b = self.log_posterior(2.0 * self.theta_star - theta)
+        # Remark 3 of Pozza et al. (2026): when both posteriors are zero
+        # (bounded support), -inf - (-inf) = nan; set w = 0.5 instead.
+        both_zero = jnp.isinf(log_a) & (log_a < 0) & jnp.isinf(log_b) & (log_b < 0)
+        return jnp.where(both_zero, 0.5, jax.nn.sigmoid(log_a - log_b))
+
+    def sample(self, key: KeyArray, n_samples: int) -> Array:
+        key1, key2 = jax.random.split(key)
+        theta_bar = self.symmetric_dist.sample(key1, n_samples)  # (N, d)
+        u = jax.random.uniform(key2, (n_samples,))
+        w = jax.vmap(self.skewing_factor)(theta_bar)  # (N,)
+        reflection = 2.0 * self.theta_star - theta_bar  # (N, d)
+        keep = (u <= w)[:, None]
+        return jnp.where(keep, theta_bar, reflection)
+
+    def log_prob(self, theta: Array) -> Array:
+        log_sym = self.symmetric_dist.log_prob(theta, raw=True)
+        log_w = jnp.log(self.skewing_factor(theta))
+        return jnp.log(2.0) + log_sym + log_w
+
+
+
 @eqx.filter_jit
 def get_kl_projection_mcmc(
     key: KeyArray,
@@ -400,7 +445,7 @@ def get_kl_projection_mcmc(
     Project the tilted distribution at the k_th site to a FullGaussian using the
     moment matching.  Tilted distribution is defined as
 
-    g_{\k}(z) \propto g_{-k}(z) * f_k(z)
+    g_{\\k}(z) \\propto g_{-k}(z) * f_k(z)
 
     where g_{-k}(z) is the cavity distribution, and f_k(z) is the raw
     (unnormalised) density.
@@ -621,6 +666,7 @@ def expectation_propagation(
 
         if is_converge(site_deltas, tol=tol):
             break
+    assert len(global_g_ls) == len(time_ls)
 
     return global_g_ls, site_gs, iteration, time_ls
 

@@ -1,0 +1,17 @@
+.DS_store
+.vscode
+/tensorboard
+/wandb
+/outputs
+/tpu-output
+/datasets
+/obsolete
+__pycache__
+
+*.el
+*.pyc
+*.pdf
+*.png
+.Rproj.user
+.Rprofile
+.Rhistory

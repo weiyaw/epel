@@ -7,19 +7,19 @@ defaults:
 
 model: kyphosis
 
-prior_sd: 100
+prior_sd: 10
 
 seed: 100
 
 verbose: False
 
-date: ${now:%Y-%m-%d}
+id: ${now:%Y-%m-%d}
 lastrun: ${now:%Y-%m-%dT%H:%M:%S%z}
 git: ${githash:}
 
 hydra:
   run:
-    dir: "./outputs/${date}/\
+    dir: "./outputs/${id}/\
       model=${model}
       ${print_algo:${algorithm}}
       prior=${prior_sd}

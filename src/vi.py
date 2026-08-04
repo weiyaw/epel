@@ -101,7 +101,7 @@ class DiagonalGaussian(Gaussian):
         return self.compute_log_prob(x, self.mu, self.log_std)
 
     def __repr__(self) -> str:
-        return f"N(\u03BC={self.mu}, \u03C3={jnp.diag(self.Sigma)})"
+        return f"N(\u03bc={self.mu}, \u03c3={jnp.diag(self.Sigma)})"
 
 
 class LowRankGaussian(Gaussian):
@@ -181,7 +181,7 @@ class FullGaussian(Gaussian):
         return self.compute_log_prob(x, self.mu, self.log_diag_L, self.off_L)
 
     def __repr__(self) -> str:
-        return f"N(\u03BC={self.mu}, \u03A3={self.Sigma})"
+        return f"N(\u03bc={self.mu}, \u03a3={self.Sigma})"
 
 
 def rejection_sampler(
@@ -506,6 +506,8 @@ def fit_to_variational_target(
             time_ls.append(timer() - start)
 
     best_dist = q_ls[jnp.argmin(jnp.asarray(losses))]
+
+    assert len(q_ls) == len(time_ls)
     return q_ls, best_dist, losses, time_ls
 
 
@@ -547,3 +549,73 @@ def main():
 if __name__ == "__main__":
     main()
 
+
+# @eqx.filter_jit
+# def grad_score_loss(
+#     params: FullGaussian,
+#     static: FullGaussian,
+#     key: KeyArray,
+#     log_target: Callable,
+#     N: int,
+#     oracle: Callable = None,
+# ) -> PyTree:
+#     """Compute the gradient of the score matching loss wrt the variational
+#     parameters
+
+#     :param params: ...
+#     :param static: ...
+#     :param key: A PRNG key
+#     :param log_target: The log of the target distribution, up to a normalizing
+#         constant
+#     :param N: Number of samples
+#     :param oracle: A function that returns True if the sample is in the subset
+#     """
+#     # f: target distribution
+#     # q: approximation distribution
+
+#     def truncated_sampler(key):
+#         # Return the key that, when passed to the sampler it will be accepted by
+#         # the oracle. NOTE: THIS FUNCTION CANNOT GO INSIDE L2 BECAUSE OF THE
+#         # WHILE LOOP INSIDE THE REJECTION SAMPLER
+#         if oracle is None:
+#             xkey = key
+#         else:
+#             q_dist = eqx.combine(params, static)
+#             xkey, _ = rejection_sampler(key, q_dist.sampler, oracle)
+#         return xkey
+
+#     def l2_score(params, xkey):
+#         # L2 of the difference between the score of f and q
+#         q_dist = eqx.combine(params, static)
+#         f_score = grad(log_target)
+#         q_score = grad(q_dist.log_prob)
+#         x = q_dist.sample(xkey)  # this is guaranteed to have finite f and q score
+#         return jnp.sum((f_score(x) - q_score(x)) ** 2)
+
+#     subkeys = jax.random.split(key, N)
+#     xkeys = vmap(truncated_sampler)(subkeys)
+#     bscore, bgrad = vmap(value_and_grad(l2_score), (None, 0))(params, xkeys)
+#     # jax.debug.print("l2: {}", res[0])
+#     # jax.debug.print("grad_l2: {}", res[1].mu)
+#     return jax.tree.map(lambda x: jnp.mean(x, axis=0), (bscore, bgrad))
+
+
+# def run_score_matching(
+#     key,
+#     log_posterior,
+#     q: FullGaussian,
+#     N: int,
+#     oracle: Callable = None,
+# ) -> PyTree:
+#     score_ls = []
+#     opt = optax.adam(0.01)
+#     opt_state = opt.init(q)
+#     for i in range(1000):
+#         score, grads = grad_score_loss(key, log_posterior, q, N, oracle)
+#         updates, opt_state = opt.update(grads, opt_state)
+#         q = optax.apply_updates(q, updates)
+#         score_ls.append(score)
+#         if i % 100 == 0:
+#             print(f"iter: {i}, score: {score:.4f}, \n q: {q}")
+
+#     return q, score_ls

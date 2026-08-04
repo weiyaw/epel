@@ -1,11 +1,9 @@
 # Expectation Propagation
 ep:
-  n_terms: null                 # number of sites, i.e. pooling some EL terms together
-  init_cov_factor: 1.0          # a multiplier in front of the initial covariance matrix
-  damping_factor: 0.5           # the damping factor of the global EPEL update
+  n_points: 1
+  init_cov_factor: 1.0
+  damping_factor: 0.1
   tol: 1e-3
-  max_iter: 100                 # maximum iterations to run EPEL
-  laplace_iter: 30              # number of iterations to run with Laplace on
-                                # tilted distribution before switching to
-                                # importance sampling
-  snis_samples: 5000            # number of imporatance sampling
+  max_iter: 180
+  laplace_iter: 50
+  snis_samples: 5000

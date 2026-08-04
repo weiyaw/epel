@@ -233,3 +233,43 @@ def write_to_local(path, obj, verbose=False):
 
 def write_to(path, obj, verbose=False):
     write_to_local(path, obj, verbose=verbose)
+
+
+def read_from_local(path):
+    with open(path, "rb") as f:
+        obj = pickle.load(f)
+    return obj
+
+
+def read_from(path):
+    return read_from_local(path)
+
+
+def get_matching_dirs(directory: str, regex: str) -> list[str]:
+    """
+    Find subdirectories in a given directory that match a regex pattern.
+
+    Args:
+        directory (str): The directory to search in.
+        regex (str): The regular expression pattern to search for in directory names.
+
+    Returns:
+        list[str]: A sorted list of full paths to the matching directories.
+    """
+    matching_dirs = []
+    if os.path.exists(directory):
+        for entry in os.scandir(directory):
+            if entry.is_dir() and re.search(regex, entry.name):
+                matching_dirs.append(entry.path)
+    matching_dirs.sort()
+    return matching_dirs
+
+
+def get_matching_files(directory: str, regex: str) -> list[str]:
+    matching_files = []
+    if os.path.exists(directory):
+        for entry in os.scandir(directory):
+            if entry.is_file() and re.search(regex, entry.name):
+                matching_files.append(entry.path)
+    matching_files.sort()
+    return matching_files

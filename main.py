@@ -1,4 +1,11 @@
 # %%
+from pathlib import Path
+import sys
+
+SRC_DIR = Path(__file__).resolve().parent / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -24,9 +31,9 @@ np.set_printoptions(linewidth=np.inf, formatter={"float": "{:.4g}".format})
 
 jax.config.update("jax_enable_x64", True)
 # jax.config.update("jax_default_matmul_precision", "float32")  # control for 32bit input
-jax.config.update("jax_compilation_cache_dir", "/tmp/jax-cache")
-jax.config.update("jax_persistent_cache_min_entry_size_bytes", -1)
-jax.config.update("jax_persistent_cache_min_compile_time_secs", 0)
+# jax.config.update("jax_compilation_cache_dir", "/tmp/jax-cache")
+# jax.config.update("jax_persistent_cache_min_entry_size_bytes", -1)
+# jax.config.update("jax_persistent_cache_min_compile_time_secs", 0)
 
 
 @hydra.main(version_base=None, config_path="conf", config_name="main")
@@ -44,40 +51,13 @@ def main(cfg: DictConfig):
             len(cfg.algorithm) == 1
         ), "Random walk does not compute the same posterior as other algorithms. Run it seperately."
 
-    n_terms = cfg.algorithm.ep.n_terms if "ep" in cfg.algorithm else None
-
-    if cfg.model == "kyphosis":
-        bayes_model = model.Kyphosis(prior_sd=cfg.prior_sd, n_terms=n_terms)
-    elif cfg.model == "regression":
-        bayes_model = model.Regression(prior_sd=cfg.prior_sd, n_terms=n_terms)
-    elif cfg.model == "quantregression":
-        # Use exact score if the algorithm can handle non-differentiable h
-        if cfg.algorithm == "rw":
-            bayes_model = model.QuantRegression(
-                tau=0.7, exact_score=True, prior_sd=cfg.prior_sd, n_terms=n_terms
-            )
-        else:
-            bayes_model = model.QuantRegression(
-                tau=0.7, exact_score=False, prior_sd=cfg.prior_sd, n_terms=n_terms
-            )
-    elif cfg.model == "quantregression3":
-        if cfg.algorithm == "rw":
-            # Use exact score if the algorithm can handle non-differentiable h
-            bayes_model = model.QuantRegression3(
-                tau=0.7, exact_score=True, prior_sd=cfg.prior_sd, n_terms=n_terms
-            )
-        else:
-            bayes_model = model.QuantRegression3(
-                tau=0.7, exact_score=False, prior_sd=cfg.prior_sd, n_terms=n_terms
-            )
-    elif cfg.model == "regression10":
-        bayes_model = model.Regression10(prior_sd=cfg.prior_sd, n_terms=n_terms)
-    elif cfg.model == "job":
-        bayes_model = model.Job()
-    elif cfg.model == "gee":
-        bayes_model = model.GEE(prior_sd=cfg.prior_sd, n_terms=n_terms)
-    else:
-        raise ValueError("Invalid dataset")
+    # Use exact score for rw since it can handle non-differentiable h
+    bayes_model = model.build_model(
+        cfg.model,
+        cfg.prior_sd,
+        n_points=cfg.algorithm.ep.n_points if "ep" in cfg.algorithm else 1,
+        exact_score="rw" in cfg.algorithm,
+    )
 
     logging.info(f"dim of theta: {bayes_model.dim_theta}")
     n_data = utils.get_tree_lead_dim(bayes_model.data)
@@ -130,6 +110,7 @@ def main(cfg: DictConfig):
                 sd_shrink_factor=cfg_algo.sd_shrink_factor,
                 n_samples=cfg_algo.n_samples,
                 n_warmup=cfg_algo.n_warmup,
+                thinning=cfg_algo.thinning,
             )
 
         utils.write_to(
@@ -137,6 +118,12 @@ def main(cfg: DictConfig):
             {"state": mcmc_state, "info": mcmc_info, "time": time_ls},
             verbose=True,
         )
+        # save as pure numpy array and built-in structure, to be readable by reticulate
+        utils.write_to(
+            f"{outdir}/pure.pickle",
+            {"samples": np.asarray(mcmc_state.position), "time": time_ls},
+        )
+
         mcmc_mean = jnp.mean(mcmc_state.position, axis=0)
         mcmc_cov = jnp.cov(mcmc_state.position, rowvar=False)
         logging.info(f"MCMC mu :{mcmc_mean}")
@@ -149,18 +136,6 @@ def main(cfg: DictConfig):
         log_ael_posterior = partial(
             bayes_model.log_posterior, check_sum_to_1=True, use_llog=False, use_ael=True
         )
-
-        # key, subkey = jax.random.split(key)
-        # q = flowjax.flows.masked_autoregressive_flow(
-        #     subkey,
-        #     base_dist=StandardNormal((bayes_model.dim_theta,)),
-        #     transformer=Affine(),
-        #     nn_depth=2,
-        #     # flow_layers=8,
-        #     flow_layers=32,
-        #     invert=True,
-        # )
-        # # logging.info(f"initial: {q}")
 
         if cfg_algo.opt == "sgd":
             opt = optax.sgd(cfg_algo.learning_rate)
@@ -200,6 +175,19 @@ def main(cfg: DictConfig):
             {"state": q_ls, "time": time_ls},
             verbose=True,
         )
+
+        # save as pure numpy array and built-in structure, to be readable by reticulate
+        utils.write_to(
+            f"{outdir}/pure.pickle",
+            {
+                "state": {
+                    "mean": np.asarray([q.mu for q in q_ls]),
+                    "cov": np.asarray([q.Sigma for q in q_ls]),
+                },
+                "time": time_ls,
+            },
+        )
+
         logging.info(f"final mu: {final_q.mu}")
         logging.info(f"final Sigma: \n {final_q.Sigma}")
 
@@ -241,6 +229,18 @@ def main(cfg: DictConfig):
             {"state": global_g_ls, "time": time_ls},
             verbose=True,
         )
+
+        # save as pure numpy array and built-in structure, to be readable by reticulate
+        utils.write_to(
+            f"{outdir}/pure.pickle",
+            {
+                "state": {
+                    "mean": np.asarray([g.mu for g in global_g_ls]),
+                    "cov": np.asarray([g.Sigma for g in global_g_ls]),
+                },
+                "time": time_ls,
+            },
+        )
         logging.info(f"final mu: {global_g_ls[-1].mu}")
         logging.info(f"final Sigma: \n {global_g_ls[-1].Sigma}")
 
@@ -254,25 +254,3 @@ if __name__ == "__main__":
 
 
 # %%
-# OmegaConf.register_new_resolver("githash", utils.githash)
-# OmegaConf.register_new_resolver("dict_to_str", utils.dict_to_str)
-# with hydra.initialize(version_base=None, config_path="conf", job_name="test_app"):
-#     cfg = hydra.compose(
-#         config_name="main",
-#         overrides=[
-#             "hydra.run.dir=./outputs/debug",
-#             "algorithm=[hmc, ep]",
-#             "algorithm.hmc.n_samples=4000",
-#             "algorithm.hmc.n_warmup=2000",
-#             "algorithm.hmc.step_size=0.01",
-#             "algorithm.hmc.num_integration_steps=50",
-#             "algorithm.ep.damping_factor=0.1",
-#             "algorithm.ep.max_iter=50",
-#             "algorithm.ep.tol=1e-3",
-#             "prior_sd=100",
-#             "seed=200",
-#             "verbose=True",
-#             "model=gee",
-#         ],
-#     )
-#     main(cfg)
